@@ -1,0 +1,22 @@
+---
+- name: Dump databases daily
+  cron:
+    name: "Dump {{item.name}} database"
+    hour: 6
+    minute: "{{[item.id, 59]|min}}"
+    job: "/usr/bin/docker exec -it db-{{item.name}} mysqldump -u root --password={{mysql_root_password}} db > /minipages/backup/{{item.name}}/`date +%Y%m%d`.sql"
+  with_items: "{{sites}}"
+
+- name: Tar and copy htdocs daily
+  cron:
+    name: "Backup htdocs"
+    hour: 7
+    minute: 5
+    job: "/bin/tar -czf /minipages/backup/`date +%Y%m%d`.tar.gz /minipages/htdocs/*"
+
+- name: Remove old backups
+  cron:
+    name: "Remove old backups"
+    hour: 8
+    minute: 5
+    job: "/usr/bin/find /minipages/backup/* -mtime +7 -type f -exec rm -f {} \\;"

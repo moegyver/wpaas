@@ -1,0 +1,8 @@
+---
+- hosts: minipages
+  become: true
+  gather_facts: true
+  roles:
+    - common
+    - geerlingguy.docker
+    - minipages

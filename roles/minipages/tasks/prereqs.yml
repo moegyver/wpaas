@@ -1,0 +1,12 @@
+---
+- name: Install docker-py
+  package:
+    name: python-docker-py
+    state: installed
+
+- name: Create file structure
+  file:
+    name: /minipages/
+    state: directory
+    owner: root
+    group: root

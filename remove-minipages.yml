@@ -1,0 +1,41 @@
+---
+- hosts: minipages
+  gather_facts: true
+  become: true
+  handlers:
+    - name: Reload nginx
+      service:
+        name: nginx
+        state: reloaded
+  tasks:
+    - name: Remove containers
+      docker_container:
+        name: "{{item}}-{{name}}"
+        state: absent
+      with_items:
+        - db
+        - web
+        - sftp
+    - name: Remove files
+      file:
+        state: absent
+        path: /minipages/{{item}}/{{name}}
+      with_items:
+        - backup
+        - db
+        - htdocs
+        - sftp
+    - name: Remove proxy
+      file:
+        state: absent
+        path: "{{item}}"
+      with_items:
+        - /etc/nginx/ssl/{{name}}.crt
+        - /etc/nginx/ssl/{{name}}.key
+        - "/etc/nginx/sites-enabled/{{name}}"
+      notify: Reload nginx
+
+    - name: Remove backup cronjob
+      cron:
+        state: absent
+        name: Dump {{name}} database

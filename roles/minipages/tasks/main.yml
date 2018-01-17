@@ -1,0 +1,10 @@
+---
+- include: prereqs.yml
+
+- include: proxy.yml
+
+- include: sites.yml
+
+- include: monitoring.yml
+
+- include: backup.yml

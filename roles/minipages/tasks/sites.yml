@@ -1,0 +1,161 @@
+---
+- name: Create backup and sftp dirs
+  file:
+    name: "/minipages/{{item[1]}}/{{item[0].name}}"
+    state: directory
+    owner: 1000
+    group: 1000
+  with_nested:
+    - "{{sites}}"
+    - ["backup", "sftp"]
+
+- name: Create db dirs
+  file:
+    name: /minipages/db/{{item.name}}
+    state: directory
+    owner: 999
+    group: 999
+  with_items: "{{sites}}"
+
+- name: Create htdocs dirs
+  file:
+    name: /minipages/htdocs/{{item.name}}
+    state: directory
+    owner: 82
+    group: 82
+  with_items: "{{sites}}"
+
+- name: Start db container
+  docker_container:
+    name: "db-{{item.name}}"
+    image: mariadb:latest
+    state: started
+    restart_policy: always
+    network_mode: bridge
+    published_ports: "0.0.0.0:{{item.id|int + 3000}}:3306"
+    volumes:
+      - /minipages/db/{{item.name}}:/var/lib/mysql
+    env:
+      MYSQL_ROOT_PASSWORD: "{{mysql_root_password}}"
+      MYSQL_DATABASE: db
+      MYSQL_USER: "{{item.username}}"
+      MYSQL_PASSWORD: "{{item.password}}"
+  with_items: "{{sites}}"
+
+- name: Wait for sql to settle
+  wait_for:
+    port: "{{item.id|int + 3000}}"
+    delay: 2
+  with_items: "{{sites}}"
+
+- name: Update user password
+  command: "docker exec -i db-{{item.name}} mysql -u root --password={{mysql_root_password}}"
+  args:
+    stdin: "set password for '{{item.username}}'@'%' = password('{{item.password}}');\nquit"
+  with_items: "{{sites}}"
+  changed_when: false
+
+- name: Start web container
+  docker_container:
+    name: "web-{{item.name}}"
+    image: "wordpress:php{{item.php | default(default_php)}}-fpm-alpine"
+    state: started
+    restart_policy: always
+    network_mode: bridge
+    published_ports: "127.0.0.1:{{item.id|int + 8000}}:9000"
+    links:
+      - "db-{{item.name}}:mysql"
+    volumes:
+      - /minipages/htdocs/{{item.name}}:/var/www/html
+  with_items: "{{sites}}"
+
+- name: Wait for wordpress to be downloaded
+  wait_for:
+    path: /minipages/htdocs/{{item.name}}/wp-config.php
+  with_items: "{{sites}}"
+
+- name: Update wordpress password
+  lineinfile:
+    path: /minipages/htdocs/{{item.name}}/wp-config.php
+    regexp: define\('DB_PASSWORD', '.*'\);
+    line: define('DB_PASSWORD', '{{item.password}}');
+  with_items: "{{sites}}"
+
+- name: Make sure email works
+  blockinfile:
+    state: present
+    path: /minipages/htdocs/{{item.name}}/wp-config.php
+    block: |
+      add_action( 'phpmailer_init', 'mail_relay' );
+      function mail_relay( $phpmailer ) {
+          $phpmailer->isSMTP();
+          $phpmailer->Host = '{{inventory_hostname}}';
+          $phpmailer->SMTPAutoTLS = false;
+          $phpmailer->From = 'minipages@minipages.domain';
+          $phpmailer->FromName = '{{item.name}} minipages';
+      }
+  with_items: "{{sites}}"
+
+- name: Create sftp conf
+  template:
+    src: users.conf.j2
+    dest: "/minipages/sftp/{{item.name}}/users.conf"
+    owner: root
+    group: root
+    mode: 0600
+  with_items: "{{sites}}"
+  register: user_changed
+
+- name: Remove container where credentials have changed
+  docker_container:
+    name: "sftp-{{item.item.name}}"
+    state: absent
+  with_items:
+    - "{{user_changed.results}}"
+  when: item.changed
+
+- name: Start sftp container
+  docker_container:
+    name: "sftp-{{item.name}}"
+    image: atmoz/sftp:alpine
+    state: started
+    restart_policy: always
+    network_mode: bridge
+    published_ports: "0.0.0.0:{{item.id|int + 2000}}:22"
+    volumes:
+      - "/minipages/htdocs/{{item.name}}:/home/{{item.username}}/htdocs"
+      - "/minipages/sftp/{{item.name}}:/etc/sftp:ro"
+  with_items:
+    - "{{sites}}"
+
+- name: Copy site cert
+  copy:
+    content: "{{item.ssl_cert}}"
+    dest: "/etc/nginx/ssl/{{item.name}}.crt"
+    owner: root
+    group: root
+    mode: 0644
+  with_items: "{{sites}}"
+  when: item.ssl_cert is defined
+  notify: Reload nginx
+
+- name: Copy site key
+  copy:
+    content: "{{item.ssl_key}}"
+    dest: "/etc/nginx/ssl/{{item.name}}.key"
+    owner: root
+    group: root
+    mode: 0600
+  with_items: "{{sites}}"
+  when: item.ssl_key is defined
+  notify: Reload nginx
+
+- name: Create proxy
+  template:
+    src: proxy.j2
+    dest: /etc/nginx/sites-enabled/{{item.name}}
+    owner: root
+    group: root
+    mode: 0644
+  with_items: "{{sites}}"
+  notify: Reload nginx

@@ -1,0 +1,16 @@
+server {
+  listen 443 ssl;
+  listen [::]:443 ssl;
+  ssl_certificate ssl/{{item.name if item.ssl_cert is defined else 'ssl'}}.crt;
+  ssl_certificate_key ssl/{{item.name if item.ssl_key is defined else 'ssl'}}.key;
+  ssl_protocols TLSv1.1 TLSv1.2;
+  ssl_ciphers HIGH:!aNULL:!MD5;
+  root /minipages/htdocs/{{item.name}};
+  index index.php index.html index.htm;
+  server_name {{item.url|default([item.name, '.', inventory_hostname]|join)}};
+  location ~ \.php$ {
+    include snippets/fastcgi-php.conf;
+    fastcgi_param SCRIPT_FILENAME /var/www/html/$fastcgi_script_name;
+    fastcgi_pass 127.0.0.1:{{item.id|int + 8000}};
+  }
+}

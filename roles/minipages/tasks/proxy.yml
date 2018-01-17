@@ -1,0 +1,56 @@
+---
+- name: Install nginx
+  package:
+    name: nginx
+    state: present
+
+- name: Delete default nginx conf
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+
+- name: Create redirect conf
+  copy:
+    src: redirect
+    dest: /etc/nginx/sites-enabled/redirect
+    owner: root
+    group: root
+    mode: 0644
+  notify: Reload nginx
+
+- name: Create ssl dir
+  file:
+    path: /etc/nginx/ssl
+    state: directory
+    owner: root
+    group: root
+    mode: 0755
+
+- name: Copy ssl cert
+  copy:
+    content: "{{ssl_cert}}"
+    dest: /etc/nginx/ssl/ssl.crt
+    owner: root
+    group: root
+    mode: 0644
+  notify: Reload nginx
+
+- name: Copy ssl key
+  copy:
+    content: "{{ssl_key}}"
+    dest: /etc/nginx/ssl/ssl.key
+    owner: root
+    group: root
+    mode: 0600
+  notify: Reload nginx
+
+- name: Copy default index.html
+  copy:
+    src: index.html
+    dest: /var/www/html/index.html
+
+- name: Make sure nginx is running
+  service:
+    name: nginx
+    state: started
+    enabled: yes
